@@ -1,0 +1,13 @@
+[Unit]
+Description=DBBroker host worktree watcher
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/dbbroker/env
+ExecStart=%h/.local/bin/dbbroker watch 30
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

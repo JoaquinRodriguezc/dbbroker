@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+API="${DBBROKER_API:-http://127.0.0.1:8787}"
+command="${1:-}"; shift || true
+
+repo_identity() { printf '%s' "$(git rev-parse --path-format=absolute --git-common-dir)"; }
+worktree_identity() { printf '%s' "$(git rev-parse --show-toplevel)"; }
+request() { curl --fail-with-body -sS -H 'Content-Type: application/json' "$@"; }
+identity_json() {
+  local template="${1:-main}"
+  printf '{"repository":%s,"worktree":%s,"template":%s}' \
+    "$(repo_identity | jq -Rs .)" "$(worktree_identity | jq -Rs .)" "$(printf %s "$template" | jq -Rs .)"
+}
+assignment_json() {
+  local repository="$1" worktree="$2"
+  printf '{"repository":%s,"worktree":%s}' \
+    "$(printf %s "$repository" | jq -Rs .)" "$(printf %s "$worktree" | jq -Rs .)"
+}
+write_env_file() {
+  local path="$1" value="$2" directory temporary
+  directory="$(dirname "$path")"
+  mkdir -p "$directory"
+  temporary="$(mktemp "${path}.tmp.XXXXXX")"
+  if [[ -f "$path" ]]; then
+    awk -v replacement="DATABASE_URL=$value" '
+      BEGIN { replaced=0 }
+      /^DATABASE_URL=/ { if (!replaced) print replacement; replaced=1; next }
+      { print }
+      END { if (!replaced) print replacement }
+    ' "$path" >"$temporary"
+  else
+    printf 'DATABASE_URL=%s\n' "$value" >"$temporary"
+  fi
+  chmod 600 "$temporary"
+  mv "$temporary" "$path"
+}
+reconcile_once() {
+  while IFS=$'\t' read -r repository worktree; do
+    [[ "$worktree" == /* ]] || continue
+    if [[ -d "$worktree" ]]; then
+      request -X POST -d "$(assignment_json "$repository" "$worktree")" "$API/v1/heartbeat" >/dev/null
+    else
+      echo "releasing missing worktree: $worktree" >&2
+      request -X POST -d "$(assignment_json "$repository" "$worktree")" "$API/v1/release" >/dev/null
+    fi
+  done < <(request "$API/v1/assignments" | jq -r '.assignments[] | [.repository, .worktree] | @tsv')
+}
+
+case "$command" in
+  seed)
+    name="${1:?usage: dbbroker seed NAME BACKUP}"; backup="${2:?usage: dbbroker seed NAME BACKUP}"
+    curl --fail-with-body -sS -X POST -H "X-DBBroker-Repository: $(repo_identity)" --data-binary "@$backup" "$API/v1/templates/$name" | jq .
+    ;;
+  acquire)
+    shell=false
+    env_file=""
+    template="main"
+    template_set=false
+    while (($#)); do
+      case "$1" in
+        --shell) shell=true ;;
+        --env-file)
+          shift
+          env_file="${1:?--env-file requires a path}"
+          ;;
+        --env-file=*) env_file="${1#*=}" ;;
+        -*) echo "unknown acquire option: $1" >&2; exit 2 ;;
+        *)
+          $template_set && { echo "only one template may be specified" >&2; exit 2; }
+          template="$1"
+          template_set=true
+          ;;
+      esac
+      shift
+    done
+    $shell && [[ -n "$env_file" ]] && { echo "--shell and --env-file are mutually exclusive" >&2; exit 2; }
+    response="$(request -X POST -d "$(identity_json "$template")" "$API/v1/acquire")"
+    database_url="$(jq -er .database_url <<<"$response")"
+    if $shell; then
+      printf 'export DATABASE_URL=%q\n' "$database_url"
+    elif [[ -n "$env_file" ]]; then
+      write_env_file "$env_file" "$database_url"
+      printf 'assigned %s; wrote DATABASE_URL to %s\n' "$(jq -r .database_name <<<"$response")" "$env_file"
+    else
+      jq . <<<"$response"
+    fi
+    ;;
+  heartbeat)
+    request -X POST -d "$(identity_json)" "$API/v1/heartbeat" >/dev/null
+    ;;
+  release)
+    request -X POST -d "$(identity_json)" "$API/v1/release" >/dev/null
+    ;;
+  list)
+    request "$API/v1/assignments" | jq .
+    ;;
+  reconcile)
+    reconcile_once
+    ;;
+  watch)
+    interval="${1:-30}"
+    [[ "$interval" =~ ^[1-9][0-9]*$ ]] || { echo "interval must be positive seconds" >&2; exit 2; }
+    echo "watching worktrees every ${interval}s" >&2
+    while true; do reconcile_once || true; sleep "$interval"; done
+    ;;
+  *) echo "usage: dbbroker {seed NAME FILE|acquire [TEMPLATE] [--shell|--env-file PATH]|heartbeat|release|list|reconcile|watch [SECONDS]}" >&2; exit 2 ;;
+esac
