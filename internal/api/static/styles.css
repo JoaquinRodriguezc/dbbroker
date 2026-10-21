@@ -1,0 +1,58 @@
+:root {
+  color-scheme: light;
+  --bg: #f4f6f3;
+  --surface: #ffffff;
+  --ink: #18221b;
+  --muted: #68736b;
+  --line: #dfe6df;
+  --green: #197343;
+  --green-soft: #e4f4ea;
+  --shadow: 0 16px 40px rgba(24, 34, 27, 0.08);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; color: var(--ink); background: radial-gradient(circle at top left, #e8f2e9 0, transparent 32rem), var(--bg); }
+button { font: inherit; }
+.shell { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 64px 0 80px; }
+.hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 32px; }
+.eyebrow { margin: 0 0 8px; color: var(--green); font-size: 12px; font-weight: 800; letter-spacing: .18em; }
+h1 { margin: 0; font-size: clamp(36px, 6vw, 64px); line-height: .98; letter-spacing: -.055em; }
+.subtitle { margin: 14px 0 0; color: var(--muted); font-size: 17px; }
+.refresh { border: 1px solid var(--line); border-radius: 999px; padding: 11px 18px; color: var(--ink); background: rgba(255,255,255,.78); cursor: pointer; transition: .18s ease; }
+.refresh:hover { border-color: #aeb9b0; transform: translateY(-1px); }
+.refresh:disabled { cursor: wait; opacity: .6; transform: none; }
+.summary { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 28px; margin-bottom: 46px; padding: 18px 22px; border: 1px solid var(--line); border-radius: 18px; background: rgba(255,255,255,.72); backdrop-filter: blur(10px); }
+.metric { display: flex; align-items: baseline; gap: 9px; }
+.metric-value { font-size: 28px; font-weight: 780; }
+.metric-label, .connection, .updated { color: var(--muted); font-size: 13px; }
+.connection { display: flex; align-items: center; gap: 8px; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: #aab2ac; box-shadow: 0 0 0 4px #edf0ed; }
+.status-dot.online { background: #2b9b5f; box-shadow: 0 0 0 4px #dcf3e5; }
+.status-dot.error { background: #cf4e4e; box-shadow: 0 0 0 4px #fae2e2; }
+.section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+h2 { margin: 0; font-size: 18px; letter-spacing: -.02em; }
+.section-heading span { color: var(--muted); font-size: 12px; }
+.assignments { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.assignment-card { min-width: 0; padding: 22px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); box-shadow: var(--shadow); }
+.card-topline { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 17px; }
+.live-pill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 9px; border-radius: 999px; color: var(--green); background: var(--green-soft); font-size: 11px; font-weight: 750; text-transform: uppercase; letter-spacing: .07em; }
+.live-pill span { width: 6px; height: 6px; border-radius: 50%; background: #26985b; }
+.template { color: var(--muted); font-size: 12px; }
+.database { margin: 0 0 22px; overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 18px; text-overflow: ellipsis; white-space: nowrap; }
+dl { display: grid; gap: 13px; margin: 0; }
+dl div { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 12px; align-items: baseline; }
+dt { color: var(--muted); font-size: 12px; }
+dd { min-width: 0; margin: 0; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.empty, .error-panel { grid-column: 1 / -1; padding: 64px 24px; border: 1px dashed #cbd4cc; border-radius: 20px; color: var(--muted); text-align: center; background: rgba(255,255,255,.55); }
+.empty strong, .error-panel strong { display: block; margin-bottom: 8px; color: var(--ink); font-size: 17px; }
+.skeleton { height: 260px; border-radius: 20px; background: linear-gradient(100deg, #e8ece8 20%, #f5f7f5 40%, #e8ece8 60%); background-size: 200% 100%; animation: shine 1.3s infinite; }
+@keyframes shine { to { background-position-x: -200%; } }
+@media (max-width: 720px) {
+  .shell { padding-top: 36px; }
+  .hero { align-items: flex-start; }
+  .summary { grid-template-columns: 1fr auto; }
+  .updated { grid-column: 1 / -1; }
+  .assignments { grid-template-columns: 1fr; }
+  .section-heading span { display: none; }
+}

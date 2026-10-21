@@ -5,7 +5,7 @@ Local HTTP service that gives each Git worktree its own disposable PostgreSQL da
 ## Architecture
 
 - One PostgreSQL server stores template databases and worktree databases.
-- The broker exposes an HTTP API on `127.0.0.1:8787`.
+- The broker exposes an HTTP API and lightweight dashboard on `127.0.0.1:8787`.
 - Broker metadata lives in the `dbbroker` schema of the administrative `postgres` database.
 - A lease is refreshed with heartbeats. The collector drops expired databases.
 
@@ -17,6 +17,7 @@ Requirements: Docker Compose, `curl`, `jq`, and Git.
 cp .env.example .env
 docker compose up -d --build
 curl http://127.0.0.1:8787/healthz
+# Dashboard: http://127.0.0.1:8787/
 ```
 
 Run the complete smoke test after startup:

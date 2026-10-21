@@ -106,3 +106,26 @@ func TestSeedAcceptsRepositoryHeader(t *testing.T) {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
 	}
 }
+
+func TestDashboardIsEmbedded(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	New(&fakeBroker{}, "", slog.New(slog.NewTextHandler(io.Discard, nil))).ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte("Bases activas")) {
+		t.Fatalf("dashboard HTML missing: %s", w.Body.String())
+	}
+}
+
+func TestDashboardAssetsAreEmbedded(t *testing.T) {
+	for _, path := range []string{"/styles.css", "/app.js"} {
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		New(&fakeBroker{}, "", slog.New(slog.NewTextHandler(io.Discard, nil))).ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s status = %d", path, w.Code)
+		}
+	}
+}

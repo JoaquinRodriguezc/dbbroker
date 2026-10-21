@@ -2,16 +2,21 @@ package api
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/local/dbbroker/internal/broker"
 )
+
+//go:embed static/*
+var staticContent embed.FS
 
 type Broker interface {
 	Seed(ctx context.Context, repository, name string, backup io.Reader) (string, error)
@@ -30,6 +35,7 @@ type Server struct {
 func New(b Broker, token string, log *slog.Logger) http.Handler {
 	s := &Server{broker: b, token: token, log: log}
 	mux := http.NewServeMux()
+	mux.Handle("GET /", staticHandler())
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -152,4 +158,12 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 func problem(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]any{"error": msg, "status": status})
+}
+
+func staticHandler() http.Handler {
+	root, err := fs.Sub(staticContent, "static")
+	if err != nil {
+		panic(err)
+	}
+	return http.FileServer(http.FS(root))
 }
