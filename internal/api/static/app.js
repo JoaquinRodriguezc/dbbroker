@@ -43,6 +43,10 @@ const render = (assignments) => {
     article.querySelector('.repository').title = assignment.repository;
     article.querySelector('.worktree').textContent = shortPath(assignment.worktree);
     article.querySelector('.worktree').title = assignment.worktree;
+    if (assignment.redis_key_prefix) {
+      article.querySelector('.redis').textContent = assignment.redis_key_prefix;
+      article.querySelector('.redis-row').hidden = false;
+    }
     article.querySelector('.heartbeat').textContent = relativeTime(assignment.last_heartbeat);
     article.querySelector('.created').textContent = new Intl.DateTimeFormat('es', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(assignment.created_at));
     elements.assignments.append(card);

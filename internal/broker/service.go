@@ -29,10 +29,15 @@ type Assignment struct {
 	Status        string    `json:"status"`
 	CreatedAt     time.Time `json:"created_at"`
 	LastHeartbeat time.Time `json:"last_heartbeat"`
+	// RedisURL carries the per-worktree credentials, so only Acquire returns it.
+	RedisURL       string `json:"redis_url,omitempty"`
+	RedisKeyPrefix string `json:"redis_key_prefix,omitempty"`
+	redisPassword  string
 }
 
 type Service struct {
 	pool      *pgxpool.Pool
+	redis     *redisStore
 	adminURL  string
 	publicURL string
 	ttl       time.Duration
@@ -40,7 +45,8 @@ type Service struct {
 	log       *slog.Logger
 }
 
-func New(ctx context.Context, adminURL, publicURL string, ttl time.Duration, maxBackup int64, log *slog.Logger) (*Service, error) {
+// New connects to PostgreSQL and, when redisAdminURL is set, to Redis.
+func New(ctx context.Context, adminURL, publicURL, redisAdminURL, redisPublicURL string, ttl time.Duration, maxBackup int64, log *slog.Logger) (*Service, error) {
 	pool, err := pgxpool.New(ctx, adminURL)
 	if err != nil {
 		return nil, err
@@ -50,10 +56,21 @@ func New(ctx context.Context, adminURL, publicURL string, ttl time.Duration, max
 		pool.Close()
 		return nil, err
 	}
+	if redisAdminURL != "" {
+		if s.redis, err = newRedisStore(ctx, redisAdminURL, redisPublicURL); err != nil {
+			pool.Close()
+			return nil, fmt.Errorf("redis: %w", err)
+		}
+	}
 	return s, nil
 }
 
-func (s *Service) Close() { s.pool.Close() }
+func (s *Service) Close() {
+	if s.redis != nil {
+		_ = s.redis.Close()
+	}
+	s.pool.Close()
+}
 
 func (s *Service) ensureSchema(ctx context.Context) error {
 	_, err := s.pool.Exec(ctx, `
@@ -82,7 +99,8 @@ CREATE TABLE IF NOT EXISTS dbbroker.assignments (
   template_name text NOT NULL, status text NOT NULL DEFAULT 'ready',
   created_at timestamptz NOT NULL DEFAULT now(), last_heartbeat timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (repository, worktree)
-);`)
+);
+ALTER TABLE dbbroker.assignments ADD COLUMN IF NOT EXISTS redis_password text;`)
 	return err
 }
 
@@ -152,12 +170,14 @@ func (s *Service) Acquire(ctx context.Context, repository, worktree, template st
 	}
 	var result Assignment
 	err := s.withLock(ctx, "worktree:"+repository+":"+worktree, func(conn *pgx.Conn) error {
-		row := conn.QueryRow(ctx, `SELECT repository,worktree,database_name,template_name,status,created_at,last_heartbeat
+		row := conn.QueryRow(ctx, `SELECT `+assignmentColumns+`
 FROM dbbroker.assignments WHERE repository=$1 AND worktree=$2`, repository, worktree)
 		if err := scanAssignment(row, &result); err == nil {
-			_, err = conn.Exec(ctx, `UPDATE dbbroker.assignments SET last_heartbeat=now() WHERE repository=$1 AND worktree=$2`, repository, worktree)
+			if _, err = conn.Exec(ctx, `UPDATE dbbroker.assignments SET last_heartbeat=now() WHERE repository=$1 AND worktree=$2`, repository, worktree); err != nil {
+				return err
+			}
 			result.LastHeartbeat = time.Now().UTC()
-			return err
+			return s.ensureRedis(ctx, conn, &result)
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
@@ -176,22 +196,55 @@ FROM dbbroker.assignments WHERE repository=$1 AND worktree=$2`, repository, work
 			return err
 		}
 		row = conn.QueryRow(ctx, `INSERT INTO dbbroker.assignments(repository,worktree,database_name,template_name)
-VALUES($1,$2,$3,$4) RETURNING repository,worktree,database_name,template_name,status,created_at,last_heartbeat`, repository, worktree, dbName, template)
-		return scanAssignment(row, &result)
+VALUES($1,$2,$3,$4) RETURNING `+assignmentColumns, repository, worktree, dbName, template)
+		if err := scanAssignment(row, &result); err != nil {
+			return err
+		}
+		return s.ensureRedis(ctx, conn, &result)
 	})
 	if err != nil {
 		return Assignment{}, err
 	}
 	result.DatabaseURL = databaseURL(s.publicURL, result.DatabaseName)
+	if s.redis != nil {
+		result.RedisURL = redisURL(s.redis.publicURL, result.DatabaseName, result.redisPassword)
+		result.RedisKeyPrefix = redisKeyPrefix(result.DatabaseName)
+	}
 	return result, nil
 }
 
+// ensureRedis stores a password for assignments that predate Redis support and
+// (re)creates the worktree's ACL user.
+func (s *Service) ensureRedis(ctx context.Context, conn *pgx.Conn, a *Assignment) error {
+	if s.redis == nil {
+		return nil
+	}
+	if a.redisPassword == "" {
+		password, err := newRedisPassword()
+		if err != nil {
+			return err
+		}
+		if _, err := conn.Exec(ctx, `UPDATE dbbroker.assignments SET redis_password=$3 WHERE repository=$1 AND worktree=$2`, a.Repository, a.Worktree, password); err != nil {
+			return err
+		}
+		a.redisPassword = password
+	}
+	return s.redis.ensureUser(ctx, a.DatabaseName, a.redisPassword)
+}
+
+// Heartbeat also restores the Redis user, so a Redis restart heals within one
+// watcher cycle.
 func (s *Service) Heartbeat(ctx context.Context, repository, worktree string) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE dbbroker.assignments SET last_heartbeat=now() WHERE repository=$1 AND worktree=$2`, repository, worktree)
-	if err == nil && tag.RowsAffected() == 0 {
+	var dbName, password string
+	err := s.pool.QueryRow(ctx, `UPDATE dbbroker.assignments SET last_heartbeat=now() WHERE repository=$1 AND worktree=$2
+RETURNING database_name, coalesce(redis_password,'')`, repository, worktree).Scan(&dbName, &password)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
-	return err
+	if err != nil || s.redis == nil || password == "" {
+		return err
+	}
+	return s.redis.ensureUser(ctx, dbName, password)
 }
 
 func (s *Service) Release(ctx context.Context, repository, worktree string) error {
@@ -202,6 +255,13 @@ func (s *Service) Release(ctx context.Context, repository, worktree string) erro
 		} else if err != nil {
 			return err
 		}
+		// Redis goes first: if it is unavailable the assignment stays intact and
+		// the next release or collection retries.
+		if s.redis != nil {
+			if err := s.redis.dropUser(ctx, dbName); err != nil {
+				return fmt.Errorf("redis cleanup: %w", err)
+			}
+		}
 		if err := s.dropDatabase(ctx, conn, dbName); err != nil {
 			return err
 		}
@@ -211,7 +271,7 @@ func (s *Service) Release(ctx context.Context, repository, worktree string) erro
 }
 
 func (s *Service) List(ctx context.Context) ([]Assignment, error) {
-	rows, err := s.pool.Query(ctx, `SELECT repository,worktree,database_name,template_name,status,created_at,last_heartbeat FROM dbbroker.assignments ORDER BY created_at`)
+	rows, err := s.pool.Query(ctx, `SELECT `+assignmentColumns+` FROM dbbroker.assignments ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -223,6 +283,9 @@ func (s *Service) List(ctx context.Context) ([]Assignment, error) {
 			return nil, err
 		}
 		a.DatabaseURL = databaseURL(s.publicURL, a.DatabaseName)
+		if s.redis != nil && a.redisPassword != "" {
+			a.RedisKeyPrefix = redisKeyPrefix(a.DatabaseName)
+		}
 		out = append(out, a)
 	}
 	return out, rows.Err()
@@ -309,6 +372,8 @@ func databaseURL(base, database string) string {
 
 type scanner interface{ Scan(...any) error }
 
+const assignmentColumns = `repository,worktree,database_name,template_name,status,created_at,last_heartbeat,coalesce(redis_password,'')`
+
 func scanAssignment(row scanner, a *Assignment) error {
-	return row.Scan(&a.Repository, &a.Worktree, &a.DatabaseName, &a.Template, &a.Status, &a.CreatedAt, &a.LastHeartbeat)
+	return row.Scan(&a.Repository, &a.Worktree, &a.DatabaseName, &a.Template, &a.Status, &a.CreatedAt, &a.LastHeartbeat, &a.redisPassword)
 }
