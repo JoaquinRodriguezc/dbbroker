@@ -192,6 +192,13 @@ FROM dbbroker.assignments WHERE repository=$1 AND worktree=$2`, repository, work
 		if err := s.dropDatabase(ctx, conn, dbName); err != nil {
 			return err
 		}
+		// A heartbeat racing a release can resurrect the ACL user; start clean so
+		// stale passwords and keys never carry over.
+		if s.redis != nil {
+			if err := s.redis.dropUser(ctx, dbName); err != nil {
+				return fmt.Errorf("redis cleanup: %w", err)
+			}
+		}
 		if _, err := conn.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{dbName}.Sanitize()+" TEMPLATE "+pgx.Identifier{source}.Sanitize()); err != nil {
 			return err
 		}
