@@ -20,6 +20,7 @@ var staticContent embed.FS
 
 type Broker interface {
 	Seed(ctx context.Context, repository, name string, backup io.Reader) (string, error)
+	Unseed(ctx context.Context, repository, name string) error
 	Acquire(ctx context.Context, repository, worktree, template string) (broker.Assignment, error)
 	Heartbeat(ctx context.Context, repository, worktree string) error
 	Release(ctx context.Context, repository, worktree string) error
@@ -40,6 +41,7 @@ func New(b Broker, token string, log *slog.Logger) http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("POST /v1/templates/{name}", s.seed)
+	mux.HandleFunc("DELETE /v1/templates/{name}", s.unseed)
 	mux.HandleFunc("POST /v1/acquire", s.acquire)
 	mux.HandleFunc("POST /v1/heartbeat", s.heartbeat)
 	mux.HandleFunc("POST /v1/release", s.release)
@@ -66,6 +68,19 @@ func (s *Server) seed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"name": name, "database_name": db})
+}
+func (s *Server) unseed(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	repository := strings.TrimSpace(r.Header.Get("X-DBBroker-Repository"))
+	if strings.TrimSpace(name) == "" || repository == "" {
+		problem(w, http.StatusBadRequest, "template name and X-DBBroker-Repository are required")
+		return
+	}
+	if err := s.broker.Unseed(r.Context(), repository, name); err != nil {
+		s.fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 func (s *Server) acquire(w http.ResponseWriter, r *http.Request) {
 	var q request

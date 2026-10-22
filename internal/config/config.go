@@ -11,6 +11,8 @@ type Config struct {
 	Listen            string
 	DatabaseURL       string
 	PublicDatabaseURL string
+	RedisURL          string
+	PublicRedisURL    string
 	Token             string
 	LeaseTTL          time.Duration
 	GCInterval        time.Duration
@@ -22,7 +24,12 @@ func Load() (Config, error) {
 		Listen:            getenv("DBBROKER_LISTEN", ":8080"),
 		DatabaseURL:       getenv("DBBROKER_DATABASE_URL", "postgres://dbbroker:dbbroker@127.0.0.1:54329/postgres?sslmode=disable"),
 		PublicDatabaseURL: getenv("DBBROKER_PUBLIC_DATABASE_URL", "postgres://dbbroker:dbbroker@127.0.0.1:54329/postgres?sslmode=disable"),
+		RedisURL:          os.Getenv("DBBROKER_REDIS_URL"),
+		PublicRedisURL:    os.Getenv("DBBROKER_PUBLIC_REDIS_URL"),
 		Token:             os.Getenv("DBBROKER_TOKEN"),
+	}
+	if c.RedisURL != "" && c.PublicRedisURL == "" {
+		return Config{}, fmt.Errorf("DBBROKER_PUBLIC_REDIS_URL is required when DBBROKER_REDIS_URL is set")
 	}
 	var err error
 	if c.LeaseTTL, err = duration("DBBROKER_LEASE_TTL", 15*time.Minute); err != nil {

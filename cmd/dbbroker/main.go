@@ -24,7 +24,7 @@ func main() {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-	svc, err := broker.New(ctx, cfg.DatabaseURL, cfg.PublicDatabaseURL, cfg.LeaseTTL, cfg.MaxBackupBytes, log)
+	svc, err := broker.New(ctx, cfg.DatabaseURL, cfg.PublicDatabaseURL, cfg.RedisURL, cfg.PublicRedisURL, cfg.LeaseTTL, cfg.MaxBackupBytes, log)
 	if err != nil {
 		log.Error("start broker", "error", err)
 		os.Exit(1)
@@ -38,7 +38,7 @@ func main() {
 		defer c()
 		_ = server.Shutdown(shutdownCtx)
 	}()
-	log.Info("dbbroker listening", "address", cfg.Listen)
+	log.Info("dbbroker listening", "address", cfg.Listen, "redis", cfg.RedisURL != "")
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Error("http server", "error", err)
 		os.Exit(1)

@@ -21,6 +21,7 @@ type fakeBroker struct {
 func (f *fakeBroker) Seed(context.Context, string, string, io.Reader) (string, error) {
 	return "dbb_tpl_main", f.err
 }
+func (f *fakeBroker) Unseed(context.Context, string, string) error { return f.err }
 func (f *fakeBroker) Acquire(context.Context, string, string, string) (broker.Assignment, error) {
 	return f.acquired, f.err
 }
@@ -127,5 +128,38 @@ func TestDashboardAssetsAreEmbedded(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("%s status = %d", path, w.Code)
 		}
+	}
+}
+
+func unseedRequest(repository string) *http.Request {
+	r := httptest.NewRequest(http.MethodDelete, "/v1/templates/main", nil)
+	r.Header.Set("Authorization", "Bearer secret")
+	if repository != "" {
+		r.Header.Set("X-DBBroker-Repository", repository)
+	}
+	return r
+}
+
+func TestUnseedRequiresRepositoryHeader(t *testing.T) {
+	w := httptest.NewRecorder()
+	handler(&fakeBroker{}).ServeHTTP(w, unseedRequest(""))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestUnseedReturnsNoContent(t *testing.T) {
+	w := httptest.NewRecorder()
+	handler(&fakeBroker{}).ServeHTTP(w, unseedRequest("/repo/.git"))
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestUnseedMapsMissingTemplate(t *testing.T) {
+	w := httptest.NewRecorder()
+	handler(&fakeBroker{err: broker.ErrNotFound}).ServeHTTP(w, unseedRequest("/repo/.git"))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d", w.Code)
 	}
 }

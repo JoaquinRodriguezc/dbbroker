@@ -17,23 +17,46 @@ assignment_json() {
   printf '{"repository":%s,"worktree":%s}' \
     "$(printf %s "$repository" | jq -Rs .)" "$(printf %s "$worktree" | jq -Rs .)"
 }
+# write_env_file PATH KEY=VALUE... replaces each KEY in place, drops duplicates
+# and appends missing keys, preserving every other line.
 write_env_file() {
-  local path="$1" value="$2" directory temporary
+  local path="$1" directory temporary line entry matched written=""
+  shift
   directory="$(dirname "$path")"
   mkdir -p "$directory"
   temporary="$(mktemp "${path}.tmp.XXXXXX")"
   if [[ -f "$path" ]]; then
-    awk -v replacement="DATABASE_URL=$value" '
-      BEGIN { replaced=0 }
-      /^DATABASE_URL=/ { if (!replaced) print replacement; replaced=1; next }
-      { print }
-      END { if (!replaced) print replacement }
-    ' "$path" >"$temporary"
-  else
-    printf 'DATABASE_URL=%s\n' "$value" >"$temporary"
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      matched=""
+      for entry in "$@"; do
+        [[ "$line" == "${entry%%=*}="* ]] && { matched="$entry"; break; }
+      done
+      if [[ -z "$matched" ]]; then
+        printf '%s\n' "$line"
+      elif [[ " $written " != *" ${matched%%=*} "* ]]; then
+        printf '%s\n' "$matched"
+        written+=" ${matched%%=*}"
+      fi
+    done <"$path" >"$temporary"
   fi
+  for entry in "$@"; do
+    [[ " $written " == *" ${entry%%=*} "* ]] || printf '%s\n' "$entry" >>"$temporary"
+  done
   chmod 600 "$temporary"
   mv "$temporary" "$path"
+}
+# assignment_env prints the KEY=VALUE pairs an acquire response provides. Redis
+# is also split into discrete variables (and BULLMQ_PREFIX) for apps that do not
+# read REDIS_URL.
+assignment_env() {
+  jq -er '"DATABASE_URL=\(.database_url // error("missing database_url"))",
+    (select(.redis_url) | . as $a
+      | ($a.redis_url | capture("^redis://(?<user>[^:@/]+):(?<pass>[^@/]+)@(?<host>[^:/]+):(?<port>[0-9]+)")
+         // error("unexpected redis_url format")) as $r
+      | "REDIS_URL=\($a.redis_url)", "REDIS_KEY_PREFIX=\($a.redis_key_prefix)",
+        "REDIS_HOST=\($r.host)", "REDIS_PORT=\($r.port)",
+        "REDIS_USERNAME=\($r.user)", "REDIS_PASSWORD=\($r.pass)",
+        "BULLMQ_PREFIX=\($a.redis_key_prefix | rtrimstr(":"))")' <<<"$1"
 }
 reconcile_once() {
   while IFS=$'\t' read -r repository worktree; do
@@ -51,6 +74,10 @@ case "$command" in
   seed)
     name="${1:?usage: dbbroker seed NAME BACKUP}"; backup="${2:?usage: dbbroker seed NAME BACKUP}"
     curl --fail-with-body -sS -X POST -H "X-DBBroker-Repository: $(repo_identity)" --data-binary "@$backup" "$API/v1/templates/$name" | jq .
+    ;;
+  unseed)
+    name="${1:?usage: dbbroker unseed NAME}"
+    request -X DELETE -H "X-DBBroker-Repository: $(repo_identity)" "$API/v1/templates/$name" >/dev/null
     ;;
   acquire)
     shell=false
@@ -76,12 +103,14 @@ case "$command" in
     done
     $shell && [[ -n "$env_file" ]] && { echo "--shell and --env-file are mutually exclusive" >&2; exit 2; }
     response="$(request -X POST -d "$(identity_json "$template")" "$API/v1/acquire")"
-    database_url="$(jq -er .database_url <<<"$response")"
+    env_lines="$(assignment_env "$response")"
+    mapfile -t entries <<<"$env_lines"
     if $shell; then
-      printf 'export DATABASE_URL=%q\n' "$database_url"
+      for entry in "${entries[@]}"; do printf 'export %s=%q\n' "${entry%%=*}" "${entry#*=}"; done
     elif [[ -n "$env_file" ]]; then
-      write_env_file "$env_file" "$database_url"
-      printf 'assigned %s; wrote DATABASE_URL to %s\n' "$(jq -r .database_name <<<"$response")" "$env_file"
+      write_env_file "$env_file" "${entries[@]}"
+      keys="$(printf '%s\n' "${entries[@]%%=*}" | paste -sd, - | sed 's/,/, /g')"
+      printf 'assigned %s; wrote %s to %s\n' "$(jq -r .database_name <<<"$response")" "$keys" "$env_file"
     else
       jq . <<<"$response"
     fi
@@ -104,5 +133,5 @@ case "$command" in
     echo "watching worktrees every ${interval}s" >&2
     while true; do reconcile_once || true; sleep "$interval"; done
     ;;
-  *) echo "usage: dbbroker {seed NAME FILE|acquire [TEMPLATE] [--shell|--env-file PATH]|heartbeat|release|list|reconcile|watch [SECONDS]}" >&2; exit 2 ;;
+  *) echo "usage: dbbroker {seed NAME FILE|unseed NAME|acquire [TEMPLATE] [--shell|--env-file PATH]|heartbeat|release|list|reconcile|watch [SECONDS]}" >&2; exit 2 ;;
 esac

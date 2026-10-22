@@ -42,6 +42,7 @@ h2 { margin: 0; font-size: 18px; letter-spacing: -.02em; }
 .database { margin: 0 0 22px; overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 18px; text-overflow: ellipsis; white-space: nowrap; }
 dl { display: grid; gap: 13px; margin: 0; }
 dl div { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 12px; align-items: baseline; }
+dl div[hidden] { display: none; }
 dt { color: var(--muted); font-size: 12px; }
 dd { min-width: 0; margin: 0; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .empty, .error-panel { grid-column: 1 / -1; padding: 64px 24px; border: 1px dashed #cbd4cc; border-radius: 20px; color: var(--muted); text-align: center; background: rgba(255,255,255,.55); }

@@ -1,4 +1,4 @@
-.PHONY: test build run up down logs e2e e2e-multiproject
+.PHONY: test build run up down logs e2e e2e-multiproject e2e-redis
 
 test:
 	go test ./...
@@ -16,10 +16,13 @@ down:
 	docker compose down
 
 logs:
-	docker compose logs -f broker postgres
+	docker compose logs -f broker postgres redis
 
 e2e:
 	./scripts/e2e.sh
 
 e2e-multiproject:
 	./scripts/e2e-multiproject.sh
+
+e2e-redis:
+	./scripts/e2e-redis.sh
