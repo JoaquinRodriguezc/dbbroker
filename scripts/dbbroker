@@ -75,6 +75,10 @@ case "$command" in
     name="${1:?usage: dbbroker seed NAME BACKUP}"; backup="${2:?usage: dbbroker seed NAME BACKUP}"
     curl --fail-with-body -sS -X POST -H "X-DBBroker-Repository: $(repo_identity)" --data-binary "@$backup" "$API/v1/templates/$name" | jq .
     ;;
+  unseed)
+    name="${1:?usage: dbbroker unseed NAME}"
+    request -X DELETE -H "X-DBBroker-Repository: $(repo_identity)" "$API/v1/templates/$name" >/dev/null
+    ;;
   acquire)
     shell=false
     env_file=""
@@ -129,5 +133,5 @@ case "$command" in
     echo "watching worktrees every ${interval}s" >&2
     while true; do reconcile_once || true; sleep "$interval"; done
     ;;
-  *) echo "usage: dbbroker {seed NAME FILE|acquire [TEMPLATE] [--shell|--env-file PATH]|heartbeat|release|list|reconcile|watch [SECONDS]}" >&2; exit 2 ;;
+  *) echo "usage: dbbroker {seed NAME FILE|unseed NAME|acquire [TEMPLATE] [--shell|--env-file PATH]|heartbeat|release|list|reconcile|watch [SECONDS]}" >&2; exit 2 ;;
 esac
