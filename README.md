@@ -55,8 +55,8 @@ Inside any worktree, write the assigned connection to the application's environm
 dbbroker acquire main --env-file .env.local
 ```
 
-The command preserves unrelated entries and replaces previous `DATABASE_URL`,
-`REDIS_URL` and `REDIS_KEY_PREFIX` entries atomically. Add the chosen
+The command preserves unrelated entries and replaces the variables it owns
+(`DATABASE_URL` and, with Redis, the ones listed below) atomically. Add the chosen
 environment file to the consuming repository's `.gitignore`. For tools that
 require exported variables instead, `--shell` remains available.
 
@@ -70,6 +70,11 @@ With Redis enabled, `acquire` also returns:
   pub/sub channel under this prefix, for example ioredis `keyPrefix` or BullMQ
   `prefix` set to the value without the trailing colon. Anything else answers
   `NOPERM`.
+- The same connection as discrete variables, for apps that do not read
+  `REDIS_URL`: `REDIS_HOST`, `REDIS_PORT`, `REDIS_USERNAME`, `REDIS_PASSWORD`,
+  plus `BULLMQ_PREFIX` (the prefix without its trailing colon). The app must
+  pass `REDIS_USERNAME`: a password-only `AUTH` always authenticates as Redis'
+  `default` user and fails with `WRONGPASS`.
 
 The user may run every command except `@admin`, `FLUSHALL`, `FLUSHDB`,
 `SWAPDB`, `SELECT` and `MOVE`. `release` and the collector delete the prefix's
