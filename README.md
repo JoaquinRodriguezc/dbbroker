@@ -47,7 +47,8 @@ dbbroker seed main ./backup.dump
 ```
 
 Template names are scoped to the repository, so every project may safely use
-`main` without colliding with another project's template.
+`main` without colliding with another project's template. Remove one with
+`dbbroker unseed main`; databases already cloned from it are unaffected.
 
 Inside any worktree, write the assigned connection to the application's environment file:
 
@@ -120,6 +121,7 @@ Authentication is disabled by default because the API only binds to `127.0.0.1`.
 | Method | Route | Purpose |
 |---|---|---|
 | `POST` | `/v1/templates/{name}` | Stream a backup; requires `X-DBBroker-Repository` |
+| `DELETE` | `/v1/templates/{name}` | Drop that repository's template; requires `X-DBBroker-Repository` |
 | `POST` | `/v1/acquire` | Allocate or reuse a database (and Redis user) for a worktree |
 | `POST` | `/v1/heartbeat` | Refresh its lease and restore its Redis user |
 | `POST` | `/v1/release` | Drop it immediately |

@@ -4,7 +4,7 @@ description: "Gives the current Git worktree its own disposable PostgreSQL datab
 license: Apache-2.0
 metadata:
   author: joaquin
-  version: "1.4"
+  version: "1.5"
 ---
 
 ## Activation Contract
@@ -17,7 +17,7 @@ Use this skill when a task needs a PostgreSQL database or Redis isolated to the 
 - Acquire with `dbbroker acquire main --env-file <project-env-file>`; choose the environment file the repository already uses, defaulting to `.env.local` when no convention exists.
 - Use only the assigned `dbb_wt_*` database. Treat `dbb_tpl_*` databases as immutable clone sources.
 - Keep the database while its worktree exists. Run `dbbroker release` only when decommissioning that worktree or when explicitly requested.
-- Resolve templates within the current repository. Run `dbbroker seed` only when explicitly asked to replace or create that repository's template.
+- Resolve templates within the current repository. Run `dbbroker seed` or `dbbroker unseed` only when explicitly asked to replace, create or remove that repository's template.
 - When `acquire` writes Redis variables, connect with exactly those credentials: `REDIS_URL`, or `REDIS_HOST`/`REDIS_PORT`/`REDIS_USERNAME`/`REDIS_PASSWORD` (the username is mandatory). Put every key and pub/sub channel under `REDIS_KEY_PREFIX`; BullMQ apps read `BULLMQ_PREFIX`. `NOPERM` means a key or command escaped the prefix: fix the app configuration, never switch to the admin credentials.
 - Report failures with the failing command and broker response; never silently fall back to a shared development database or Redis.
 
