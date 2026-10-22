@@ -10,7 +10,9 @@ template="main_$suffix"
 
 cleanup() {
   for repo in "$repo_a" "$repo_b"; do
-    if [[ -d "$repo/.git" ]]; then (cd "$repo" && "$CLI" release >/dev/null 2>&1 || true); fi
+    if [[ -d "$repo/.git" ]]; then
+      (cd "$repo" && { "$CLI" release; "$CLI" unseed "$template"; } >/dev/null 2>&1 || true)
+    fi
     rm -rf "$repo"
   done
 }

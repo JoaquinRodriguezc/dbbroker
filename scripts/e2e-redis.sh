@@ -13,6 +13,7 @@ cleanup() {
   for dir in "$worktree" "$repo"; do
     if [[ -d "$dir" ]]; then (cd "$dir" && "$CLI" release >/dev/null 2>&1 || true); fi
   done
+  if [[ -d "$repo" ]]; then (cd "$repo" && "$CLI" unseed "$template" >/dev/null 2>&1 || true); fi
   rm -rf "$worktree" "$repo"
 }
 trap cleanup EXIT
