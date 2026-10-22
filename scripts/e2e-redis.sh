@@ -20,11 +20,12 @@ trap cleanup EXIT
 fail() { echo "e2e-redis: $*" >&2; exit 1; }
 env_value() { sed -n "s#^$2=##p" "$1/.env.local"; }
 # as DIR CMD... runs redis-cli inside the container with DIR's assigned credentials.
+# It uses the discrete variables, as apps without REDIS_URL support do.
 as() {
-  local url user pass
-  url="$(env_value "$1" REDIS_URL)"; shift
-  user="$(sed -E 's#^redis://([^:]+):.*#\1#' <<<"$url")"
-  pass="$(sed -E 's#^redis://[^:]+:([^@]+)@.*#\1#' <<<"$url")"
+  local user pass
+  user="$(env_value "$1" REDIS_USERNAME)"
+  pass="$(env_value "$1" REDIS_PASSWORD)"
+  shift
   "${COMPOSE[@]}" exec -T redis redis-cli --no-auth-warning --user "$user" --pass "$pass" "$@" 2>&1 || true
 }
 admin() { "${COMPOSE[@]}" exec -T redis redis-cli --no-auth-warning -a dbbroker "$@"; }
@@ -42,6 +43,9 @@ printf '%s\n' 'CREATE TABLE marker (value text);' >"$repo/backup.sql"
 prefix_a="$(env_value "$repo" REDIS_KEY_PREFIX)"
 prefix_b="$(env_value "$worktree" REDIS_KEY_PREFIX)"
 [[ -n "$prefix_a" && -n "$prefix_b" && "$prefix_a" != "$prefix_b" ]] || fail "worktrees did not receive distinct prefixes"
+expect "url matches discrete vars" "$(env_value "$repo" REDIS_URL)" \
+  "redis://$(env_value "$repo" REDIS_USERNAME):$(env_value "$repo" REDIS_PASSWORD)@$(env_value "$repo" REDIS_HOST):$(env_value "$repo" REDIS_PORT)/0"
+expect "bullmq prefix" "$(env_value "$repo" BULLMQ_PREFIX)" "${prefix_a%:}"
 
 expect "own write" "$(as "$repo" SET "${prefix_a}k" A)" OK
 expect "own read" "$(as "$repo" GET "${prefix_a}k")" A
