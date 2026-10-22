@@ -164,6 +164,24 @@ ON CONFLICT(repository,name) DO UPDATE SET database_name=excluded.database_name,
 	return dbName, nil
 }
 
+// Unseed drops a repository's template. Worktree databases are independent
+// copies, so existing assignments keep working.
+func (s *Service) Unseed(ctx context.Context, repository, name string) error {
+	return s.withLock(ctx, "template:"+repository+":"+name, func(conn *pgx.Conn) error {
+		var dbName string
+		if err := conn.QueryRow(ctx, `SELECT database_name FROM dbbroker.templates WHERE repository=$1 AND name=$2`, repository, name).Scan(&dbName); errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("template %q: %w", name, ErrNotFound)
+		} else if err != nil {
+			return err
+		}
+		if err := s.dropDatabase(ctx, conn, dbName); err != nil {
+			return err
+		}
+		_, err := conn.Exec(ctx, `DELETE FROM dbbroker.templates WHERE repository=$1 AND name=$2`, repository, name)
+		return err
+	})
+}
+
 func (s *Service) Acquire(ctx context.Context, repository, worktree, template string) (Assignment, error) {
 	if repository == "" || worktree == "" || template == "" {
 		return Assignment{}, errors.New("repository, worktree and template are required")
